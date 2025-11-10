@@ -52,6 +52,26 @@ def _default_state_path() -> str:
 
 STATE_PATH = _default_state_path()
 
+def set_wifi(enabled: bool):
+    cmd = ["rfkill", "unblock" if enabled else "block", "wifi"]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if enabled:
+        subprocess.run(["systemctl", "enable", "--now", "ssh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["systemctl", "disable", "--now", "ssh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def set_bluetooth(enabled: bool):
+    cmd = ["rfkill", "unblock" if enabled else "block", "bluetooth"]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def wifi_is_on() -> bool:
+    out = subprocess.run(["rfkill", "list", "wifi"], capture_output=True, text=True)
+    return "Soft blocked: no" in out.stdout
+
+def bt_is_on() -> bool:
+    out = subprocess.run(["rfkill", "list", "bluetooth"], capture_output=True, text=True)
+    return "Soft blocked: no" in out.stdout
+
 def _ensure_dir(path: str) -> None:
     d = os.path.dirname(path)
     if d and not os.path.exists(d):
@@ -333,6 +353,10 @@ class EInkRenderer(Renderer):
 class KatindleApp:
     STATE_LIBRARY = "library"
     STATE_READER = "reader"
+    STATE_LIB_MENU = 'library_menu'
+    STATE_READER_MENU = 'reader_menu'
+    STATE_SETTINGS = 'settings'
+    STATE_DEV_SETTINGS = 'dev_settings'
 
     def __init__(self, books_folder: str, renderer: Renderer, width: int, height: int):
         self.books_folder = books_folder
@@ -347,6 +371,11 @@ class KatindleApp:
         self.page_markers: List[Tuple[int, int]] = []
         self.page = 0
         self.state_store: Dict[str, Any] = load_state()
+        self.lib_menu_items = ["Sleep", "Settings", "Dev Settings"]
+        self.read_menu_items = ["Sleep", "Chapter", "Settings", "Restart"]
+        self.lib_menu_cursor = 0
+        self.read_menu_cursor = 0
+
         if "progress" not in self.state_store:
             self.state_store["progress"] = {}
 
@@ -400,22 +429,44 @@ class KatindleApp:
     def frame(self) -> Image.Image:
         if self.state == self.STATE_LIBRARY:
             return self._img_library()
-        return self._img_reader()
+        elif self.state == self.STATE_LIB_MENU:
+            return self._img_library_menu()
+        elif self.state == self.STATE_READER_MENU:
+            return self._img_reader_menu()
+        elif self.state == self.STATE_DEV_SETTINGS:
+            return self._img_dev_settings()
+        else:
+            return self._img_reader()
+
 
     def up(self):
         if self.state == self.STATE_LIBRARY:
             n = max(1, len(self.library.books))
             self.cursor = (self.cursor - 1) % n
+        elif self.state == self.STATE_LIB_MENU:
+            self.lib_menu_cursor = (self.lib_menu_cursor - 1) % len(self.lib_menu_items)
+        elif self.state == self.STATE_READER_MENU:
+            self.read_menu_cursor = (self.read_menu_cursor - 1) % len(self.read_menu_items)
+        elif self.state == self.STATE_DEV_SETTINGS:  # 👈 add this
+            # 3 items: Wi-Fi, Bluetooth, Back
+            self.lib_menu_cursor = (self.lib_menu_cursor - 1) % 3
         else:
             if self.page > 0:
                 self.page -= 1
                 self.save_progress()
+
 
     def down(self):
         if self.state == self.STATE_LIBRARY:
             n = len(self.library.books)
             if n:
                 self.cursor = (self.cursor + 1) % n
+        elif self.state == self.STATE_LIB_MENU:
+            self.lib_menu_cursor = (self.lib_menu_cursor + 1) % len(self.lib_menu_items)
+        elif self.state == self.STATE_READER_MENU:
+            self.read_menu_cursor = (self.read_menu_cursor + 1) % len(self.read_menu_items)
+        elif self.state == self.STATE_DEV_SETTINGS:  # 👈 add this
+            self.lib_menu_cursor = (self.lib_menu_cursor + 1) % 3
         else:
             if self.page_markers:
                 new_page = min(len(self.page_markers) - 1, self.page + 1)
@@ -423,28 +474,162 @@ class KatindleApp:
                     self.page = new_page
                     self.save_progress()
 
+
+
     def select(self):
-        if self.state == self.STATE_LIBRARY:
-            if not self.library.books:
-                self.library.rescan()
-                return
-            self.current_book = self.library.books[self.cursor]
-            self.text = EpubText(self.current_book.path)
-            self.page_markers = self.paginator.paginate(self.current_book.title, self.text.chapters)
-            self.page = min(
-                max(0, self.load_progress(self.current_book.path)), max(0, len(self.page_markers) - 1)
-            )
-            self.state = self.STATE_READER
-        else:
-            pass
+        if self.state == self.STATE_LIB_MENU:
+            choice = self.lib_menu_items[self.lib_menu_cursor]
+            if choice == "Dev Settings":
+                self.state = self.STATE_DEV_SETTINGS
+                self.lib_menu_cursor = 0
+            elif choice == "Sleep":
+                pass
+            else:
+                self.state = self.STATE_LIBRARY
+            return
+        elif self.state == self.STATE_READER_MENU:
+            choice = self.read_menu_items[self.read_menu_cursor]
+            if choice == "Chapter":
+                pass
+            elif choice == "Restart":
+                self.page = 0
+                self.save_progress()
+                self.state = self.STATE_READER
+            elif choice == "Sleep":
+                pass
+            else:
+                self.state = self.STATE_READER
+            return
+        elif self.state == self.STATE_READER:
+            # open reader menu
+            self.read_menu_cursor = 0
+            self.state = self.STATE_READER_MENU
+            return
+        elif self.state == self.STATE_DEV_SETTINGS:
+            if self.lib_menu_cursor == 0:
+                set_wifi(not wifi_is_on())
+            elif self.lib_menu_cursor == 1:
+                set_bluetooth(not bt_is_on())
+            else:
+                self.state = self.STATE_LIBRARY
+            return
+        elif self.state == self.STATE_LIBRARY:
+                if not self.library.books:
+                    self.library.rescan()
+                    return
+                self.current_book = self.library.books[self.cursor]
+                self.text = EpubText(self.current_book.path)
+                self.page_markers = self.paginator.paginate(self.current_book.title, self.text.chapters)
+                self.page = min(
+                    max(0, self.load_progress(self.current_book.path)), max(0, len(self.page_markers) - 1)
+                )
+                self.state = self.STATE_READER
+
 
     def back(self):
         if self.state == self.STATE_READER:
             self.save_progress()
             self.state = self.STATE_LIBRARY
+        elif self.state == self.STATE_LIBRARY:
+            # open the library menu
+            self.lib_menu_cursor = 0
+            self.state = self.STATE_LIB_MENU
+        elif self.state == self.STATE_LIB_MENU:
+            # close menu
+            self.state = self.STATE_LIBRARY
+        elif self.state == self.STATE_READER_MENU:
+            self.state = self.STATE_READER
+        elif self.state == self.STATE_DEV_SETTINGS:
+            self.state = self.STATE_LIBRARY
+
+        else:
+            pass
+
 
     def rescan_library(self):
         self.library.rescan()
+
+    def _img_library_menu(self) -> Image.Image:
+        base = self._img_library().copy()
+        d = ImageDraw.Draw(base)
+        font = self.paginator.font
+
+        box_w = int(self.width * 0.6)
+        box_h = font.size * len(self.lib_menu_items) + (len(self.lib_menu_items) + 1) * 10 + 40
+        x = (self.width - box_w) // 2
+        y = (self.height - box_h) // 2
+
+        # outer box (white)
+        d.rectangle((x, y, x + box_w, y + box_h), fill=255, outline=0)
+
+        # header bar (black)
+        header_h = font.size + 14
+        d.rectangle((x, y, x + box_w, y + header_h), fill=0)
+
+        # header text (white)
+        d.text((x + 12, y + 7), "Book Menu", fill=255, font=font)
+
+        # start listing items under header
+        item_y = y + header_h + 6
+        for idx, item in enumerate(self.lib_menu_items):
+            line_y = item_y + idx * (font.size + 10)
+            if idx == self.lib_menu_cursor:
+                d.rectangle((x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4), fill=200)
+            d.text((x + 16, line_y), item, fill=0, font=font)
+
+        return base
+    
+    def _img_reader_menu(self) -> Image.Image:
+        base = self._img_reader().copy()
+        d = ImageDraw.Draw(base)
+        font = self.paginator.font
+
+        box_w = int(self.width * 0.6)
+        box_h = font.size * len(self.read_menu_items) + (len(self.read_menu_items) + 1) * 10 + 40
+        x = (self.width - box_w) // 2
+        y = (self.height - box_h) // 2
+
+        # outer box (white)
+        d.rectangle((x, y, x + box_w, y + box_h), fill=255, outline=0)
+
+        # header bar (black)
+        header_h = font.size + 14
+        d.rectangle((x, y, x + box_w, y + header_h), fill=0)
+
+        # header text (white)
+        d.text((x + 12, y + 7), "Menu", fill=255, font=font)
+
+        # start listing items under header
+        item_y = y + header_h + 6
+        for idx, item in enumerate(self.read_menu_items):
+            line_y = item_y + idx * (font.size + 10)
+            if idx == self.read_menu_cursor:
+
+                d.rectangle((x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4), fill=200)
+            d.text((x + 16, line_y), item, fill=0, font=font)
+
+        return base
+    def _img_dev_settings(self) -> Image.Image:
+        img = Image.new("L", (self.width, self.height), 255)
+        d = ImageDraw.Draw(img)
+        font = self.paginator.font
+
+        d.rectangle((0, 0, self.width, 40), fill=0)
+        d.text((12, 10), "Developer Settings", fill=255, font=font)
+
+        opts = [
+            f"Wi-Fi: {'ON' if wifi_is_on() else 'OFF'}",
+            f"Bluetooth: {'ON' if bt_is_on() else 'OFF'}",
+            "Back",
+        ]
+        for i, opt in enumerate(opts):
+            y = 70 + i * 40
+            if i == self.lib_menu_cursor:
+                d.rectangle((20, y - 4, self.width - 20, y + 28), fill=200)
+            d.text((30, y), opt, fill=0, font=font)
+
+        return img
+
 # -------------------------- Desktop main loop ------------------------------
 KEY_Z = ord("z")
 KEY_X = ord("x")
@@ -460,14 +645,11 @@ def run_desktop():
     renderer = SDLRenderer(SCREEN_W, SCREEN_H)
     app = KatindleApp(DEFAULT_BOOKS_FOLDER, renderer, SCREEN_W, SCREEN_H)
     app.library.rescan()
-
+    usb_script = "/home/j/Katindle/usb_watch.sh"
     # 2) start usb watcher (optional)
     try:
-        subprocess.Popen(
-            ["/home/j/Katindle/usb_watch.sh"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        subprocess.Popen(["sudo", usb_script])
+
         print("[+] usb_watch.sh started")
     except Exception as e:
         print(f"[!] Could not start usb_watch.sh: {e}")
@@ -537,3 +719,5 @@ if __name__ == "__main__":
         run_desktop()
     else:
         print("No renderer available. Install pygame for desktop dev, or implement EInkRenderer for the Pi.")
+
+
