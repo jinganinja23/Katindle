@@ -28,11 +28,7 @@ import subprocess
 import gpioB
 import time
 if sys.platform.startswith("linux"):
-    WS_PATH = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
-    if WS_PATH not in sys.path:
-        sys.path.append(WS_PATH)
-
-    from waveshare_epd import epd5in79
+    import epd5in79
 # -------------------------- Config -----------------------------------------
 DEFAULT_BOOKS_FOLDER = (
     os.environ.get("BOOKS_FOLDER")
@@ -349,7 +345,6 @@ class SDLRenderer(Renderer):
 
 class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
-        from waveshare_epd import epd5in79
         self.epd = epd5in79.EPD()
         self.epd.init()
         self.epd.Clear()
