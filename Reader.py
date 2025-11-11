@@ -28,12 +28,13 @@ import subprocess
 import gpioB
 import time
 if sys.platform.startswith("linux"):
-    WS_BASE = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
+        # use absolute path because we run with sudo
+    WS_BASE = "/home/j/e-Paper/RaspberryPi_JetsonNano/python"
     WS_LIB = os.path.join(WS_BASE, "lib")
-    if os.path.isdir(WS_BASE) and WS_BASE not in sys.path:
-        sys.path.append(WS_BASE)
-    if os.path.isdir(WS_LIB) and WS_LIB not in sys.path:
-        sys.path.append(WS_LIB)
+
+    for p in (WS_BASE, WS_LIB):
+        if os.path.isdir(p) and p not in sys.path:
+            sys.path.append(p)
     
 # -------------------------- Config -----------------------------------------
 DEFAULT_BOOKS_FOLDER = (
