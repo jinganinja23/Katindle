@@ -28,7 +28,7 @@ import subprocess
 import gpioB
 import time
 if sys.platform.startswith("linux"):
-    WS_PATH = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
+    WS_PATH = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python/lib")
     if WS_PATH not in sys.path:
         sys.path.append(WS_PATH)
 
