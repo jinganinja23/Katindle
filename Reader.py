@@ -31,13 +31,7 @@ import gpioB
 import time
 if sys.platform.startswith("linux"):
         # use absolute path because we run with sudo
-    WS_BASE = "/home/j/e-Paper/RaspberryPi_JetsonNano/python"
-    WS_LIB = os.path.join(WS_BASE, "lib")
-
-    for p in (WS_BASE, WS_LIB):
-        if os.path.isdir(p) and p not in sys.path:
-            sys.path.append(p)
-    from waveshare_epd import epd5in79
+    import epd5in79
 # -------------------------- Config -----------------------------------------
 DEFAULT_BOOKS_FOLDER = (
     os.environ.get("BOOKS_FOLDER")
@@ -357,7 +351,7 @@ class EInkRenderer(Renderer):
     
 
     def __init__(self, width: int, height: int):
-        from waveshare_epd import epd5in79
+        import epd5in79
         self.epd = epd5in79.EPD()
         self.epd.init()
         self.epd.Clear()
@@ -386,6 +380,11 @@ class EInkRenderer(Renderer):
 
     def poll_key(self):
         return None
+    def clear_white(self):
+        # Full white frame; avoids a full flash unless your driver forces it
+        from PIL import Image
+        white = Image.new("1", (self.PW, self.PH), 255)
+        self.epd.display(self.epd.getbuffer(white))
 
 # -------------------------- App / Controller -------------------------------
 class KatindleApp:
