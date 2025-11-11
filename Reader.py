@@ -35,7 +35,7 @@ if sys.platform.startswith("linux"):
     for p in (WS_BASE, WS_LIB):
         if os.path.isdir(p) and p not in sys.path:
             sys.path.append(p)
-    
+    from waveshare_epd import epd5in79
 # -------------------------- Config -----------------------------------------
 DEFAULT_BOOKS_FOLDER = (
     os.environ.get("BOOKS_FOLDER")
@@ -360,22 +360,19 @@ class EInkRenderer(Renderer):
         self.height = height
 
     def draw_image(self, img: Image.Image) -> None:
-        # driver reports (likely) 272 x 792
-        panel_size = (self.epd.width, self.epd.height)
-
-        if img.size != panel_size:
-            # if your app draws 792x272, rotate to 272x792
-            if img.size == (792, 272) and panel_size == (272, 792):
-                img = img.rotate(90, expand=True)
-            else:
-                img = img.resize(panel_size)
+        panel_w, panel_h = self.epd.width, self.epd.height
+        # our app draws 792x272
+        if img.size == (792, 272) and (panel_w, panel_h) == (272, 792):
+            img = img.rotate(90, expand=True)
+        elif img.size != (panel_w, panel_h):
+            # fallback
+            img = img.resize((panel_w, panel_h))
 
         bw = img.convert("1")
         self.epd.display(self.epd.getbuffer(bw))
 
     def poll_key(self):
         return None
-
 
 # -------------------------- App / Controller -------------------------------
 class KatindleApp:
