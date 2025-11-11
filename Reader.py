@@ -350,6 +350,7 @@ class SDLRenderer(Renderer):
                 return event.key
         return None
 
+# Replace your EInkRenderer with this
 class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
         from waveshare_epd import epd5in79
@@ -358,26 +359,25 @@ class EInkRenderer(Renderer):
         self.epd.Clear()
         self.width = width
         self.height = height
+        self.panel_w, self.panel_h = self.epd.width, self.epd.height
 
     def draw_image(self, img: Image.Image) -> None:
-        panel_w, panel_h = self.epd.width, self.epd.height
-        img_w, img_h = img.size
+        # 1) Ensure grayscale first
+        if img.mode != "L":
+            img = img.convert("L")
 
-        # If orientations differ (one is landscape, the other portrait), rotate
-        if (img_w > img_h) != (panel_w > panel_h):
+        # 2) If one is portrait and the other landscape, rotate 90
+        if (img.width > img.height) != (self.panel_w > self.panel_h):
             img = img.rotate(90, expand=True)
-            img_w, img_h = img.size
 
-        # Final fit: exact match the panel
-        if (img_w, img_h) != (panel_w, panel_h):
-            img = img.resize((panel_w, panel_h), Image.BILINEAR)
+        # 3) Fit exactly to panel
+        if (img.width, img.height) != (self.panel_w, self.panel_h):
+            img = img.resize((self.panel_w, self.panel_h), Image.BILINEAR)
 
-        # High-contrast 1-bit conversion (cleaner text than default .convert("1"))
-        # Tweak threshold (160–200) to taste
-        bw = img.convert("L").point(lambda x: 0 if x < 170 else 255, mode="1")
+        # 4) High-contrast 1-bit (tweak threshold 170–190 if text looks faint/thick)
+        bw = img.point(lambda x: 0 if x < 178 else 255, mode="1")
 
         self.epd.display(self.epd.getbuffer(bw))
-
 
     def poll_key(self):
         return None
