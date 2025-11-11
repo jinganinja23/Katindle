@@ -30,10 +30,11 @@ import time
 if sys.platform.startswith("linux"):
     WS_BASE = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
     WS_LIB = os.path.join(WS_BASE, "lib")
-
-    for p in (WS_BASE, WS_LIB):
-        if os.path.isdir(p) and p not in sys.path:
-            sys.path.append(p)
+    if os.path.isdir(WS_BASE) and WS_BASE not in sys.path:
+        sys.path.append(WS_BASE)
+    if os.path.isdir(WS_LIB) and WS_LIB not in sys.path:
+        sys.path.append(WS_LIB)
+    
 # -------------------------- Config -----------------------------------------
 DEFAULT_BOOKS_FOLDER = (
     os.environ.get("BOOKS_FOLDER")
