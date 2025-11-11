@@ -28,11 +28,12 @@ import subprocess
 import gpioB
 import time
 if sys.platform.startswith("linux"):
-    WS_PATH = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
-    if os.path.isdir(WS_PATH) and WS_PATH not in sys.path:
-        sys.path.append(WS_PATH)
+    WS_BASE = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
+    WS_LIB = os.path.join(WS_BASE, "lib")
 
-    from waveshare_epd import epd5in79
+    for p in (WS_BASE, WS_LIB):
+        if os.path.isdir(p) and p not in sys.path:
+            sys.path.append(p)
 # -------------------------- Config -----------------------------------------
 DEFAULT_BOOKS_FOLDER = (
     os.environ.get("BOOKS_FOLDER")
@@ -357,8 +358,16 @@ class EInkRenderer(Renderer):
         self.height = height
 
     def draw_image(self, img: Image.Image) -> None:
-        if img.size != (self.epd.width, self.epd.height):
-            img = img.resize((self.epd.width, self.epd.height))
+        # driver reports (likely) 272 x 792
+        panel_size = (self.epd.width, self.epd.height)
+
+        if img.size != panel_size:
+            # if your app draws 792x272, rotate to 272x792
+            if img.size == (792, 272) and panel_size == (272, 792):
+                img = img.rotate(90, expand=True)
+            else:
+                img = img.resize(panel_size)
+
         bw = img.convert("1")
         self.epd.display(self.epd.getbuffer(bw))
 
