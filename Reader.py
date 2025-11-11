@@ -354,7 +354,7 @@ class SDLRenderer(Renderer):
 
 # Replace your EInkRenderer with this
 class EInkRenderer(Renderer):
-    print("EPD reports:", self.panel_w, "x", self.panel_h)
+    
 
     def __init__(self, width: int, height: int):
         from waveshare_epd import epd5in79
@@ -364,6 +364,7 @@ class EInkRenderer(Renderer):
         self.width = width
         self.height = height
         self.panel_w, self.panel_h = self.epd.width, self.epd.height
+        print("EPD reports:", self.panel_w, "x", self.panel_h)
 
     def draw_image(self, img: Image.Image) -> None:
         # 1) Ensure grayscale first
