@@ -27,6 +27,12 @@ from typing import List, Tuple, Optional, Dict, Any
 import subprocess
 import gpioB
 import time
+if sys.platform.startswith("linux"):
+    WS_PATH = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
+    if WS_PATH not in sys.path:
+        sys.path.append(WS_PATH)
+
+    from waveshare_epd import epd5in79
 # -------------------------- Config -----------------------------------------
 DEFAULT_BOOKS_FOLDER = (
     os.environ.get("BOOKS_FOLDER")
@@ -343,11 +349,31 @@ class SDLRenderer(Renderer):
 
 class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
+        from waveshare_epd import epd5in79
+        self.epd = epd5in79.EPD()
+        self.epd.init()
+        self.epd.Clear()
         self.width = width
         self.height = height
 
     def draw_image(self, img: Image.Image) -> None:
-        pass
+        # make sure it’s the right size
+        if img.size != (self.epd.width, self.epd.height):
+            img = img.resize((self.epd.width, self.epd.height))
+
+        # convert to 1-bit for the panel
+        bw = img.convert("1")
+
+        # if the image is upside down or rotated, uncomment one of these:
+        # bw = bw.rotate(180)
+        # bw = bw.rotate(90, expand=True)
+
+        self.epd.display(self.epd.getbuffer(bw))
+        # don't sleep every time or it gets slow
+        # self.epd.sleep()
+    def poll_key(self) -> Optional[int]:
+        # e-ink has no keyboard; let the main loop keep running
+        return None
 
 # -------------------------- App / Controller -------------------------------
 class KatindleApp:
@@ -642,7 +668,11 @@ def run_desktop():
         sys.exit(1)
 
     # 1) make renderer + app
-    renderer = SDLRenderer(SCREEN_W, SCREEN_H)
+    if sys.platform.startswith("linux"):
+        renderer = EInkRenderer(SCREEN_W, SCREEN_H)
+    else:
+        renderer = SDLRenderer(SCREEN_W, SCREEN_H)
+
     app = KatindleApp(DEFAULT_BOOKS_FOLDER, renderer, SCREEN_W, SCREEN_H)
     app.library.rescan()
     usb_script = "/home/j/Katindle/usb_watch.sh"
@@ -667,6 +697,7 @@ def run_desktop():
     last_time = time.time()
 
     try:
+        last_img_bytes = None
         while True:
             now = time.time()
             dt = now - last_time
@@ -706,7 +737,12 @@ def run_desktop():
                 d.text((12, 10), msg, fill=0, font=font)
                 new_books_msg_timer = max(0.0, new_books_msg_timer - dt)
 
-            renderer.draw_image(img)
+            img_bytes = img.tobytes()
+            if img_bytes != last_img_bytes:
+                renderer.draw_image(img)
+                last_img_bytes = img_bytes
+            time.sleep(0.05)
+
 
     finally:
         app.save_progress()
