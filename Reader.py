@@ -381,10 +381,15 @@ class EInkRenderer(Renderer):
     def poll_key(self):
         return None
     def clear_white(self):
-        # Full white frame; avoids a full flash unless your driver forces it
         from PIL import Image
-        white = Image.new("1", (self.PW, self.PH), 255)
+        white = Image.new("1", (self.epd.width, self.epd.height), 255)
         self.epd.display(self.epd.getbuffer(white))
+
+    def shutdown(self):
+        try:
+            self.epd.sleep()   # low power
+        except Exception:
+            pass
 
 # -------------------------- App / Controller -------------------------------
 class KatindleApp:
@@ -520,7 +525,9 @@ class KatindleApp:
                 self.state = self.STATE_DEV_SETTINGS
                 self.lib_menu_cursor = 0
             elif choice == "Sleep":
-                pass
+                self.renderer.clear_white()   # show pure white
+                self.renderer.shutdown()      # panel sleep
+                sys.exit(0) 
             else:
                 self.state = self.STATE_LIBRARY
             return
@@ -533,7 +540,9 @@ class KatindleApp:
                 self.save_progress()
                 self.state = self.STATE_READER
             elif choice == "Sleep":
-                pass
+                self.renderer.clear_white()   # show pure white
+                self.renderer.shutdown()      # panel sleep
+                sys.exit(0) 
             else:
                 self.state = self.STATE_READER
             return
