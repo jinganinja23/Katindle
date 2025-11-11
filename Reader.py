@@ -357,17 +357,8 @@ class EInkRenderer(Renderer):
         self.height = height
 
     def draw_image(self, img: Image.Image) -> None:
-        # our app makes 792x272 (landscape)
-        # the panel reports 272x792 (portrait)
-        panel_size = (self.epd.width, self.epd.height)
-
-        if img.size != panel_size:
-            # if we're 792x272 and panel is 272x792 → rotate
-            if img.size == (792, 272) and panel_size == (272, 792):
-                img = img.rotate(90, expand=True)
-            else:
-                img = img.resize(panel_size)
-
+        if img.size != (self.epd.width, self.epd.height):
+            img = img.resize((self.epd.width, self.epd.height))
         bw = img.convert("1")
         self.epd.display(self.epd.getbuffer(bw))
 
