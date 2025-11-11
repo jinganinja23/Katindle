@@ -1,0 +1,6 @@
+pygame
+ebooklib
+Pillow
+lxml
+gpiozero
+spidev
