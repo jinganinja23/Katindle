@@ -20,6 +20,8 @@ Default paths:
     • Windows: %APPDATA%/Katindle/state.json
     • Linux/Pi: ~/.local/share/katindle/state.json
 """
+
+
 from __future__ import annotations
 import os, sys, json, tempfile, shutil
 from dataclasses import dataclass
@@ -352,6 +354,8 @@ class SDLRenderer(Renderer):
 
 # Replace your EInkRenderer with this
 class EInkRenderer(Renderer):
+    print("EPD reports:", self.panel_w, "x", self.panel_h)
+
     def __init__(self, width: int, height: int):
         from waveshare_epd import epd5in79
         self.epd = epd5in79.EPD()
