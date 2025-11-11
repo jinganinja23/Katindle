@@ -345,6 +345,7 @@ class SDLRenderer(Renderer):
 
 class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
+        import epd5in79
         self.epd = epd5in79.EPD()
         self.epd.init()
         self.epd.Clear()
@@ -352,23 +353,23 @@ class EInkRenderer(Renderer):
         self.height = height
 
     def draw_image(self, img: Image.Image) -> None:
-        # make sure it’s the right size
-        if img.size != (self.epd.width, self.epd.height):
-            img = img.resize((self.epd.width, self.epd.height))
+        # our app makes 792x272 (landscape)
+        # the panel reports 272x792 (portrait)
+        panel_size = (self.epd.width, self.epd.height)
 
-        # convert to 1-bit for the panel
+        if img.size != panel_size:
+            # if we're 792x272 and panel is 272x792 → rotate
+            if img.size == (792, 272) and panel_size == (272, 792):
+                img = img.rotate(90, expand=True)
+            else:
+                img = img.resize(panel_size)
+
         bw = img.convert("1")
-
-        # if the image is upside down or rotated, uncomment one of these:
-        # bw = bw.rotate(180)
-        # bw = bw.rotate(90, expand=True)
-
         self.epd.display(self.epd.getbuffer(bw))
-        # don't sleep every time or it gets slow
-        # self.epd.sleep()
-    def poll_key(self) -> Optional[int]:
-        # e-ink has no keyboard; let the main loop keep running
+
+    def poll_key(self):
         return None
+
 
 # -------------------------- App / Controller -------------------------------
 class KatindleApp:
