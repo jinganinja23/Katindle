@@ -361,15 +361,23 @@ class EInkRenderer(Renderer):
 
     def draw_image(self, img: Image.Image) -> None:
         panel_w, panel_h = self.epd.width, self.epd.height
-        # our app draws 792x272
-        if img.size == (792, 272) and (panel_w, panel_h) == (272, 792):
-            img = img.rotate(90, expand=True)
-        elif img.size != (panel_w, panel_h):
-            # fallback
-            img = img.resize((panel_w, panel_h))
+        img_w, img_h = img.size
 
-        bw = img.convert("1")
+        # If orientations differ (one is landscape, the other portrait), rotate
+        if (img_w > img_h) != (panel_w > panel_h):
+            img = img.rotate(90, expand=True)
+            img_w, img_h = img.size
+
+        # Final fit: exact match the panel
+        if (img_w, img_h) != (panel_w, panel_h):
+            img = img.resize((panel_w, panel_h), Image.BILINEAR)
+
+        # High-contrast 1-bit conversion (cleaner text than default .convert("1"))
+        # Tweak threshold (160–200) to taste
+        bw = img.convert("L").point(lambda x: 0 if x < 170 else 255, mode="1")
+
         self.epd.display(self.epd.getbuffer(bw))
+
 
     def poll_key(self):
         return None
