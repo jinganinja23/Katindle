@@ -28,8 +28,8 @@ import subprocess
 import gpioB
 import time
 if sys.platform.startswith("linux"):
-    WS_PATH = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python/lib")
-    if WS_PATH not in sys.path:
+    WS_PATH = os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python")
+    if os.path.isdir(WS_PATH) and WS_PATH not in sys.path:
         sys.path.append(WS_PATH)
 
     from waveshare_epd import epd5in79
