@@ -23,7 +23,7 @@ Default paths:
 
 
 from __future__ import annotations
-import os, sys, json, tempfile, shutil
+import os, sys, json, tempfile, shutil, hashlib
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Any
 import subprocess
@@ -315,6 +315,34 @@ class Paginator:
         # footer
         d.text((self.width - self.margin - fw, footer_y), footer, fill=0, font=self.font)
         return img, i
+    def _cache_dir(self):
+        p = os.path.expanduser("~/.cache/katindle")
+        os.makedirs(p, exist_ok=True)
+        return p
+
+    def _cache_key(self, book_path: str) -> str:
+        st = os.stat(book_path)
+        # include font + screen, so changes invalidate cache
+        sig = f"{book_path}|{int(st.st_mtime)}|{SCREEN_W}x{SCREEN_H}|{self.paginator.font.size}"
+        return hashlib.sha1(sig.encode()).hexdigest()
+
+    def load_page_cache(self, book_path: str):
+        key = self._cache_key(book_path)
+        fp = os.path.join(self._cache_dir(), key + ".json")
+        try:
+            with open(fp, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def save_page_cache(self, book_path: str, markers):
+        key = self._cache_key(book_path)
+        fp = os.path.join(self._cache_dir(), key + ".json")
+        try:
+            with open(fp, "w") as f:
+                json.dump(markers, f, separators=(",", ":"))
+        except Exception:
+            pass
 
 
 # -------------------------- Renderers --------------------------------------
