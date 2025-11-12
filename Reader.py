@@ -22,7 +22,6 @@ Default paths:
 """
 
 import zipfile, shutil
-from __future__ import annotations
 import os, sys, json, tempfile, shutil, hashlib
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Any
