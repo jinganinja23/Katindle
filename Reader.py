@@ -21,7 +21,7 @@ Default paths:
     • Linux/Pi: ~/.local/share/katindle/state.json
 """
 
-
+import zipfile, shutil
 from __future__ import annotations
 import os, sys, json, tempfile, shutil, hashlib
 from dataclasses import dataclass
@@ -154,7 +154,9 @@ class EpubText:
         self.path = path
         self.title = os.path.splitext(os.path.basename(path))[0]
         self.chapters: List[str] = []
-        if path.lower().endswith(".epub"):
+        if os.path.isdir(path):
+            self._load_unpacked_dir(path)   # NEW
+        elif path.lower().endswith(".epub"):
             self._load_epub(path)
         else:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -178,7 +180,24 @@ class EpubText:
                     if txt:
                         texts.append(txt)
         self.chapters = texts or ["(No readable text found)"]
-
+    def _load_unpacked_dir(self, root: str) -> None:
+        # Collect html/xhtml files in a stable order
+        candidates = []
+        for r, _, files in os.walk(root):
+            for f in files:
+                if f.lower().endswith((".xhtml", ".html", ".htm")):
+                    candidates.append(os.path.join(r, f))
+        candidates.sort()
+        texts: List[str] = []
+        for fp in candidates:
+            try:
+                with open(fp, "rb") as fh:
+                    txt = self._html_to_text(fh.read())
+                    if txt:
+                        texts.append(txt)
+            except Exception:
+                pass
+        self.chapters = texts or ["(No readable text found)"]
     def _html_to_text(self, content: bytes) -> str:
         try:
             doc = html.fromstring(content)
@@ -196,6 +215,8 @@ class Paginator:
                  font_size: int, title_font_size: int, font_path: Optional[str] = None):
         self.width, self.height = width, height
         self.margin, self.line_spacing = margin, line_spacing
+
+        self._wcache: Dict[str, float] = {}
 
         # pick fonts
         fp = font_path or os.environ.get("FONT_PATH") or (
@@ -278,7 +299,7 @@ class Paginator:
         while i < len(words) and used_h + lh <= max_h:
             w = words[i]
             test = (line + " " + w).strip()
-            if d.textlength(test, font=self.font) <= max_w:
+            if self._w(d, test) <= max_w:
                 line = test
                 i += 1
             else:
@@ -300,22 +321,28 @@ class Paginator:
                 # left align
                 d.text((x, y), ln, fill=0, font=self.font)
             else:
-                total_w = sum(d.textlength(w, font=self.font) for w in words_ln)
+                total_w = sum(self._w(d, w) for w in words_ln)
                 gaps = len(words_ln) - 1
                 extra = (max_w - total_w) / gaps if gaps else 0
                 cx = x
                 for w in words_ln[:-1]:
                     d.text((cx, y), w, fill=0, font=self.font)
-                    cx += d.textlength(w, font=self.font) + extra
+                    cx += self._w(d, w) + extra
                 # last word flush right
                 last_w = words_ln[-1]
-                d.text((x + max_w - d.textlength(last_w, font=self.font), y), last_w, fill=0, font=self.font)
+                d.text((x + max_w - self._w(d, last_w), y), last_w, fill=0, font=self.font)
             y += lh
 
         # footer
         d.text((self.width - self.margin - fw, footer_y), footer, fill=0, font=self.font)
         return img, i
-    
+    def _w(self, drawer: ImageDraw.ImageDraw, s: str) -> float:
+        w = self._wcache.get(s)
+        if w is None:
+            w = drawer.textlength(s, font=self.font)
+            self._wcache[s] = w
+        return w
+
 
 # -------------------------- Renderers --------------------------------------
 class Renderer:
@@ -353,7 +380,12 @@ class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
         import epd5in79
         self.epd = epd5in79.EPD()
-        self.epd.init()
+        if hasattr(self.epd, "init_fast"):
+            try: self.epd.init_fast()
+            except: self.epd.init()
+        else:
+            self.epd.init()
+
         self.epd.Clear()
         self.width = width
         self.height = height
@@ -465,10 +497,18 @@ class KatindleApp:
     def _img_reader(self) -> Image.Image:
         assert self.current_book and self.text
         total = len(self.page_markers)
+        # try cached bitmap first
+        cached = self.page_img_load(self.current_book.path, self.page)
+        if cached is not None:
+            return cached
+
         ci, wi = self.page_markers[self.page]
         chapter_text = self.text.chapters[ci]
         page_img, _ = self.paginator.render_page(self.current_book.title, chapter_text, wi, self.page, total)
+        # save for next time
+        self.page_img_save(self.current_book.path, self.page, page_img)
         return page_img
+
 
     
     def frame(self) -> Image.Image:
@@ -602,7 +642,8 @@ class KatindleApp:
         elif self.state == self.STATE_LIBRARY:
                 t0 = tnow()
                 self.current_book = self.library.books[self.cursor]
-                self.text = EpubText(self.current_book.path)   # EPUB parse/unzip step
+                unpacked = self.ensure_epub_unpacked(self.current_book.path)   # NEW
+                self.text = EpubText(unpacked) 
                 t1 = tnow()
 
                 markers = self.load_page_cache(self.current_book.path)
@@ -732,7 +773,55 @@ class KatindleApp:
             d.text((30, y), opt, fill=0, font=font)
 
         return img
+    def _epub_cache_root(self):
+        p = os.path.expanduser("~/.cache/katindle/epub")
+        os.makedirs(p, exist_ok=True)
+        return p
+
+    def _epub_cache_dir(self, book_path):
+        st = os.stat(book_path)
+        key = hashlib.sha1(f"{book_path}|{int(st.st_mtime)}".encode()).hexdigest()
+        return os.path.join(self._epub_cache_root(), key)
+
+    def ensure_epub_unpacked(self, book_path):
+        target = self._epub_cache_dir(book_path)
+        marker = os.path.join(target, ".ok")
+        if os.path.isdir(target) and os.path.isfile(marker):
+            return target
+        if os.path.isdir(target):
+            shutil.rmtree(target, ignore_errors=True)
+        os.makedirs(target, exist_ok=True)
+        with zipfile.ZipFile(book_path, "r") as z:
+            z.extractall(target)
+        open(marker, "w").close()
+        return target
     
+    def _page_img_root(self):
+        p = os.path.expanduser("~/.cache/katindle/pages")
+        os.makedirs(p, exist_ok=True)
+        return p
+
+    def _page_key(self, book_path: str, page_idx: int) -> str:
+        st = os.stat(book_path)
+        font_sz = self.paginator.font.size
+        sig = f"{book_path}|{int(st.st_mtime)}|{page_idx}|{SCREEN_W}x{SCREEN_H}|{font_sz}"
+        return hashlib.sha1(sig.encode()).hexdigest()
+
+    def page_img_load(self, book_path: str, page_idx: int):
+        fp = os.path.join(self._page_img_root(), self._page_key(book_path, page_idx) + ".png")
+        if os.path.exists(fp):
+            try:
+                return Image.open(fp).convert("L")
+            except Exception:
+                return None
+        return None
+
+    def page_img_save(self, book_path: str, page_idx: int, img: Image.Image):
+        fp = os.path.join(self._page_img_root(), self._page_key(book_path, page_idx) + ".png")
+        try:
+            img.save(fp, format="PNG", optimize=True)
+        except Exception:
+            pass
 # -------------------------- Desktop main loop ------------------------------
 KEY_Z = ord("z")
 KEY_X = ord("x")
@@ -831,7 +920,7 @@ def run_desktop():
                 app.dirty = False
 
             # Keep loop light but responsive on Zero
-            time.sleep(0.01)
+            time.sleep(0.005)
 
             
 
