@@ -29,6 +29,8 @@ from typing import List, Tuple, Optional, Dict, Any
 import subprocess
 import gpioB
 import time
+from collections import deque
+
 if sys.platform.startswith("linux"):
         # use absolute path because we run with sudo
     import epd5in79
@@ -348,8 +350,6 @@ class SDLRenderer(Renderer):
 
 # Replace your EInkRenderer with this
 class EInkRenderer(Renderer):
-    
-
     def __init__(self, width: int, height: int):
         import epd5in79
         self.epd = epd5in79.EPD()
@@ -358,24 +358,23 @@ class EInkRenderer(Renderer):
         self.width = width
         self.height = height
         self.panel_w, self.panel_h = self.epd.width, self.epd.height
+        self._thr = 178
+        self._lut = [0 if i < self._thr else 255 for i in range(256)]
         print("EPD reports:", self.panel_w, "x", self.panel_h)
 
     def draw_image(self, img: Image.Image) -> None:
-        # 1) Ensure grayscale first
         if img.mode != "L":
             img = img.convert("L")
 
-        # 2) If one is portrait and the other landscape, rotate 90
         if (img.width > img.height) != (self.panel_w > self.panel_h):
             img = img.rotate(90, expand=True)
 
-        # 3) Fit exactly to panel
         if (img.width, img.height) != (self.panel_w, self.panel_h):
-            img = img.resize((self.panel_w, self.panel_h), Image.BILINEAR)
+            # NEAREST is faster and fine for 1-bit glyphs
+            img = img.resize((self.panel_w, self.panel_h), Image.NEAREST)
 
-        # 4) High-contrast 1-bit (tweak threshold 170–190 if text looks faint/thick)
-        bw = img.point(lambda x: 0 if x < 178 else 255, mode="1")
-
+        # Use LUT (C-accelerated) instead of Python lambda per pixel
+        bw = img.point(self._lut, mode="1")
         self.epd.display(self.epd.getbuffer(bw))
 
     def poll_key(self):
@@ -417,6 +416,8 @@ class KatindleApp:
         self.read_menu_items = ["Sleep", "Chapter", "Settings", "Restart"]
         self.lib_menu_cursor = 0
         self.read_menu_cursor = 0
+        self.input_queue = deque()
+        self.dirty = True
 
         if "progress" not in self.state_store:
             self.state_store["progress"] = {}
@@ -496,6 +497,7 @@ class KatindleApp:
             if self.page > 0:
                 self.page -= 1
                 self.save_progress()
+        self.dirty = True
 
 
     def down(self):
@@ -515,6 +517,7 @@ class KatindleApp:
                 if new_page != self.page:
                     self.page = new_page
                     self.save_progress()
+        self.dirty = True
 
 
 
@@ -530,6 +533,7 @@ class KatindleApp:
                 sys.exit(0) 
             else:
                 self.state = self.STATE_LIBRARY
+            self.dirty = True
             return
         elif self.state == self.STATE_READER_MENU:
             choice = self.read_menu_items[self.read_menu_cursor]
@@ -545,11 +549,13 @@ class KatindleApp:
                 sys.exit(0) 
             else:
                 self.state = self.STATE_READER
+            self.dirty = True
             return
         elif self.state == self.STATE_READER:
             # open reader menu
             self.read_menu_cursor = 0
             self.state = self.STATE_READER_MENU
+            self.dirty = True
             return
         elif self.state == self.STATE_DEV_SETTINGS:
             if self.lib_menu_cursor == 0:
@@ -558,10 +564,12 @@ class KatindleApp:
                 set_bluetooth(not bt_is_on())
             else:
                 self.state = self.STATE_LIBRARY
+            self.dirty = True
             return
         elif self.state == self.STATE_LIBRARY:
                 if not self.library.books:
                     self.library.rescan()
+                    self.dirty = True
                     return
                 self.current_book = self.library.books[self.cursor]
                 self.text = EpubText(self.current_book.path)
@@ -590,6 +598,7 @@ class KatindleApp:
 
         else:
             pass
+        self.dirty = True
 
 
     def rescan_library(self):
@@ -681,6 +690,15 @@ KEY_Z = ord("z")
 KEY_X = ord("x")
 KEY_C = ord("c")
 KEY_V = ord("v")
+def handle_event(self, evt: str):
+    if evt == "UP":
+        self.up()
+    elif evt == "DOWN":
+        self.down()
+    elif evt == "SELECT":
+        self.select()
+    elif evt == "BACK":
+        self.back()
 
 def run_desktop():
     if not HAVE_PYGAME:
@@ -719,21 +737,14 @@ def run_desktop():
     try:
         last_img_bytes = None
         while True:
-            now = time.time()
-            dt = now - last_time
-            last_time = now
+            # 1) consume any queued GPIO events
+            while app.input_queue:
+                app.handle_event(app.input_queue.popleft())
 
-            # 5) check for flag from usb_watch.sh
-            if os.path.exists(NEW_BOOKS_FLAG):
-                app.rescan_library()
-                os.remove(NEW_BOOKS_FLAG)
-                new_books_msg_timer = 2.0
-                print("[reader] new books flag detected")
-
-            # 6) keyboard controls (Z X C V + q/esc)
+            # 2) (optional) keyboard path still works if you use SDL on desktop
             key = renderer.poll_key()
             if key is not None:
-                if key in (ord("q"), 27):
+                if key in (ord("q"), 27):  # quit
                     break
                 elif key == ord("z"):
                     app.up()
@@ -744,24 +755,31 @@ def run_desktop():
                 elif key == ord("v"):
                     app.back()
 
-            # 7) draw main screen
-            img = app.frame()
+            # 3) react to USB flag (kept as-is)
+            if os.path.exists(NEW_BOOKS_FLAG):
+                app.rescan_library()
+                os.remove(NEW_BOOKS_FLAG)
+                new_books_msg_timer = 2.0
+                app.dirty = True
 
-            # 8) overlay "New books" popup
-            if new_books_msg_timer > 0:
-                d = ImageDraw.Draw(img)
-                msg = "New books imported"
-                font = app.paginator.font
-                w = d.textlength(msg, font=font)
-                d.rectangle((0, 0, w + 24, 40), fill=255)
-                d.text((12, 10), msg, fill=0, font=font)
-                new_books_msg_timer = max(0.0, new_books_msg_timer - dt)
-
-            img_bytes = img.tobytes()
-            if img_bytes != last_img_bytes:
+            # 4) Only render when dirty (no busy full redraws)
+            if app.dirty or new_books_msg_timer > 0:
+                img = app.frame()
+                if new_books_msg_timer > 0:
+                    d = ImageDraw.Draw(img)
+                    msg = "New books imported"
+                    font = app.paginator.font
+                    w = d.textlength(msg, font=font)
+                    d.rectangle((0, 0, w + 24, 40), fill=255)
+                    d.text((12, 10), msg, fill=0, font=font)
+                    new_books_msg_timer = max(0.0, new_books_msg_timer - 0.02)
                 renderer.draw_image(img)
-                last_img_bytes = img_bytes
-            time.sleep(0.05)
+                app.dirty = False
+
+            # Keep loop light but responsive on Zero
+            time.sleep(0.01)
+
+            
 
 
     finally:
