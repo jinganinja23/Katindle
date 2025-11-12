@@ -29,7 +29,7 @@ import subprocess
 import gpioB
 import time
 from collections import deque
-def tnow(): return time.monotonic()
+
 if sys.platform.startswith("linux"):
         # use absolute path because we run with sudo
     import epd5in79
@@ -449,7 +449,7 @@ class KatindleApp:
         self.read_menu_cursor = 0
         self.input_queue = deque()
         self.dirty = True
-        self.last_press_ts = 0.0
+        
 
         if "progress" not in self.state_store:
             self.state_store["progress"] = {}
@@ -592,8 +592,7 @@ class KatindleApp:
 
 
     def select(self):
-        t_press_to_select = (tnow() - getattr(self, "last_press_ts", tnow()))*1000
-        print(f"[T] press→select() start: {t_press_to_select:.1f} ms")
+        
         if self.state == self.STATE_LIB_MENU:
             choice = self.lib_menu_items[self.lib_menu_cursor]
             if choice == "Dev Settings":
@@ -639,17 +638,17 @@ class KatindleApp:
             self.dirty = True
             return
         elif self.state == self.STATE_LIBRARY:
-                t0 = tnow()
+                
                 self.current_book = self.library.books[self.cursor]
                 unpacked = self.ensure_epub_unpacked(self.current_book.path)   # NEW
                 self.text = EpubText(unpacked) 
-                t1 = tnow()
+                
 
                 markers = self.load_page_cache(self.current_book.path)
                 cache_hit = markers is not None
                 if not cache_hit:
                     markers = self.paginator.paginate(self.current_book.title, self.text.chapters)  # layout
-                t2 = tnow()
+                
 
                 if not cache_hit:
                     self.save_page_cache(self.current_book.path, markers)
@@ -657,14 +656,11 @@ class KatindleApp:
 
                 self.page = min(max(0, self.load_progress(self.current_book.path)),
                                 max(0, len(self.page_markers)-1))
-                t3 = tnow()
+                
 
                 self.state = self.STATE_READER
                 self.dirty = True
-                print("[T] EPUB init: {:.1f} ms | paginate: {:.1f} ms | setpage: {:.1f} ms{}".format(
-                    (t1 - t0)*1000, (t2 - t1)*1000, (t3 - t2)*1000,
-                    " | CACHE" if cache_hit else " | first-time"
-                ))
+            
                 return    
 
 
@@ -900,9 +896,9 @@ def run_desktop():
 
             # 4) Only render when dirty (no busy full redraws)
             if app.dirty or new_books_msg_timer > 0:
-                tF0 = tnow()
+                
                 img = app.frame()                # build image
-                tF1 = tnow()
+                
                 if new_books_msg_timer > 0:
                     d = ImageDraw.Draw(img)
                     msg = "New books imported"
@@ -912,10 +908,6 @@ def run_desktop():
                     d.text((12, 10), msg, fill=0, font=font)
                     new_books_msg_timer = max(0.0, new_books_msg_timer - 0.02)
                 renderer.draw_image(img)
-                tF2 = tnow()
-                print("[T] press→frameStart={:.1f} ms | frame()={:.1f} ms | display()={:.1f} ms".format(
-                    (tF0 - app.last_press_ts)*1000, (tF1 - tF0)*1000, (tF2 - tF1)*1000
-                ))
                 app.dirty = False
 
             # Keep loop light but responsive on Zero
