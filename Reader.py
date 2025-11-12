@@ -578,6 +578,8 @@ class KatindleApp:
                     max(0, self.load_progress(self.current_book.path)), max(0, len(self.page_markers) - 1)
                 )
                 self.state = self.STATE_READER
+                self.dirty = True      # ← make the first press render immediately
+                return     
 
 
     def back(self):
