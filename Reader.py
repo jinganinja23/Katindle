@@ -315,35 +315,7 @@ class Paginator:
         # footer
         d.text((self.width - self.margin - fw, footer_y), footer, fill=0, font=self.font)
         return img, i
-    def _cache_dir(self):
-        p = os.path.expanduser("~/.cache/katindle")
-        os.makedirs(p, exist_ok=True)
-        return p
-
-    def _cache_key(self, book_path: str) -> str:
-        st = os.stat(book_path)
-        # include font + screen, so changes invalidate cache
-        sig = f"{book_path}|{int(st.st_mtime)}|{SCREEN_W}x{SCREEN_H}|{self.paginator.font.size}"
-        return hashlib.sha1(sig.encode()).hexdigest()
-
-    def load_page_cache(self, book_path: str):
-        key = self._cache_key(book_path)
-        fp = os.path.join(self._cache_dir(), key + ".json")
-        try:
-            with open(fp, "r") as f:
-                return json.load(f)
-        except Exception:
-            return None
-
-    def save_page_cache(self, book_path: str, markers):
-        key = self._cache_key(book_path)
-        fp = os.path.join(self._cache_dir(), key + ".json")
-        try:
-            with open(fp, "w") as f:
-                json.dump(markers, f, separators=(",", ":"))
-        except Exception:
-            pass
-
+    
 
 # -------------------------- Renderers --------------------------------------
 class Renderer:
@@ -508,6 +480,35 @@ class KatindleApp:
             return self._img_dev_settings()
         else:
             return self._img_reader()
+        
+    def _cache_dir(self):
+        p = os.path.expanduser("~/.cache/katindle")
+        os.makedirs(p, exist_ok=True)
+        return p
+
+    def _cache_key(self, book_path: str) -> str:
+        st = os.stat(book_path)
+        # include font + screen, so changes invalidate cache
+        sig = f"{book_path}|{int(st.st_mtime)}|{SCREEN_W}x{SCREEN_H}|{self.paginator.font.size}"
+        return hashlib.sha1(sig.encode()).hexdigest()
+
+    def load_page_cache(self, book_path: str):
+        key = self._cache_key(book_path)
+        fp = os.path.join(self._cache_dir(), key + ".json")
+        try:
+            with open(fp, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def save_page_cache(self, book_path: str, markers):
+        key = self._cache_key(book_path)
+        fp = os.path.join(self._cache_dir(), key + ".json")
+        try:
+            with open(fp, "w") as f:
+                json.dump(markers, f, separators=(",", ":"))
+        except Exception:
+            pass
 
 
     def up(self):
@@ -601,7 +602,12 @@ class KatindleApp:
                     return
                 self.current_book = self.library.books[self.cursor]
                 self.text = EpubText(self.current_book.path)
-                self.page_markers = self.paginator.paginate(self.current_book.title, self.text.chapters)
+                markers = self.load_page_cache(self.current_book.path)
+                if markers is None:
+                    # FIRST time = slow; subsequent opens = instant
+                    markers = self.paginator.paginate(self.current_book.title, self.text.chapters)
+                    self.save_page_cache(self.current_book.path, markers)
+                self.page_markers = markers
                 self.page = min(
                     max(0, self.load_progress(self.current_book.path)), max(0, len(self.page_markers) - 1)
                 )
@@ -714,7 +720,7 @@ class KatindleApp:
             d.text((30, y), opt, fill=0, font=font)
 
         return img
-
+    
 # -------------------------- Desktop main loop ------------------------------
 KEY_Z = ord("z")
 KEY_X = ord("x")
