@@ -45,7 +45,7 @@ FONT_SIZE = 18
 TITLE_FONT_SIZE = 25
 FPS = 10
 HILIGHT_GRAY = 64  # dark grey for menu highlight
-
+INVERT_COLORS = False 
 # -------------------------- State file utils --------------------------------
 def _default_state_path() -> str:
     override = os.environ.get("KATINDLE_STATE")
@@ -403,8 +403,10 @@ class EInkRenderer(Renderer):
         self.panel_w, self.panel_h = self.epd.width, self.epd.height
 
         # simple threshold LUT for B/W
+        self.invert = INVERT_COLORS   # <— use global default
         self._thr = 178
-        self._lut = [0 if i < self._thr else 255 for i in range(256)]
+        self._lut_normal = [0   if i < self._thr else 255 for i in range(256)]
+        self._lut_invert = [255 if i < self._thr else 0   for i in range(256)]
 
         print("EPD reports:", self.panel_w, "x", self.panel_h)
 
@@ -421,7 +423,8 @@ class EInkRenderer(Renderer):
         if (img.width, img.height) != (self.panel_w, self.panel_h):
             img = img.resize((self.panel_w, self.panel_h), Image.NEAREST)
 
-        bw = img.point(self._lut, mode="1")
+        lut = self._lut_invert if self.invert else self._lut_normal
+        bw = img.point(lut, mode="1")
         buf = self.epd.getbuffer(bw)
 
         # prefer fast display if available
