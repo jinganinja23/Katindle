@@ -44,6 +44,7 @@ LINE_SPACING = 3
 FONT_SIZE = 18
 TITLE_FONT_SIZE = 25
 FPS = 10
+HILIGHT_GRAY = 64  # dark grey for menu highlight
 
 # -------------------------- State file utils --------------------------------
 def _default_state_path() -> str:
@@ -377,49 +378,33 @@ class SDLRenderer(Renderer):
 # Replace your EInkRenderer with this
 class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
-        import epd5in79
+        from waveshare_epd import epd5in79
         self.epd = epd5in79.EPD()
 
-        # Try fast init first (matches demo exactly)
-        if hasattr(self.epd, "init_Fast"):
-            try:
-                self.epd.init_Fast()
-            except Exception:
-                self.epd.init()
-        else:
-            self.epd.init()
-
+        # 4-gray init, like the Waveshare demo
+        self.epd.init_4Gray()
         self.epd.Clear()
+
         self.width = width
         self.height = height
         self.panel_w, self.panel_h = self.epd.width, self.epd.height
-        self._thr = 178
-        self._lut = [0 if i < self._thr else 255 for i in range(256)]
-        print("EPD reports:", self.panel_w, "x", self.panel_h)
 
     def draw_image(self, img: Image.Image) -> None:
+        # Work in 8-bit L mode; the driver will quantise to 4 greys
         if img.mode != "L":
             img = img.convert("L")
 
-        if (img.width > img.height) != (self.panel_w > self.panel_h):
+        panel_w, panel_h = self.panel_w, self.panel_h
+
+        # rotate / resize to panel
+        if img.size == (792, 272) and (panel_w, panel_h) == (272, 792):
             img = img.rotate(90, expand=True)
+        elif img.size != (panel_w, panel_h):
+            img = img.resize((panel_w, panel_h), Image.NEAREST)
 
-        if (img.width, img.height) != (self.panel_w, self.panel_h):
-            img = img.resize((self.panel_w, self.panel_h), Image.NEAREST)
-
-        bw = img.point(self._lut, mode="1")
-        buf = self.epd.getbuffer(bw)
-
-        # Prefer fast display if available
-        if hasattr(self.epd, "display_Fast"):
-            try:
-                self.epd.display_Fast(buf)
-                return
-            except Exception:
-                pass
-
-        # Fallback to normal full refresh
-        self.epd.display(buf)
+        # 4-gray buffer + display
+        buf = self.epd.getbuffer_4Gray(img)
+        self.epd.display_4Gray(buf)
 
     def poll_key(self):
         return None
@@ -722,12 +707,20 @@ class KatindleApp:
         d.text((x + 12, y + 7), "Book Menu", fill=255, font=font)
 
         # start listing items under header
+            
         item_y = y + header_h + 6
         for idx, item in enumerate(self.lib_menu_items):
             line_y = item_y + idx * (font.size + 10)
             if idx == self.lib_menu_cursor:
-                d.rectangle((x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4), fill=200)
-            d.text((x + 16, line_y), item, fill=0, font=font)
+                # dark grey bar
+                d.rectangle(
+                    (x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4),
+                    fill=HILIGHT_GRAY
+                )
+                text_color = 255  # white text on dark grey
+            else:
+                text_color = 0    # black text on white
+            d.text((x + 16, line_y), item, fill=text_color, font=font)
 
         return base
     
@@ -751,14 +744,20 @@ class KatindleApp:
         # header text (white)
         d.text((x + 12, y + 7), "Menu", fill=255, font=font)
 
-        # start listing items under header
+            # start listing items under header
         item_y = y + header_h + 6
         for idx, item in enumerate(self.read_menu_items):
             line_y = item_y + idx * (font.size + 10)
             if idx == self.read_menu_cursor:
+                d.rectangle(
+                    (x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4),
+                    fill=HILIGHT_GRAY
+                )
+                text_color = 255
+            else:
+                text_color = 0
+            d.text((x + 16, line_y), item, fill=text_color, font=font)
 
-                d.rectangle((x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4), fill=200)
-            d.text((x + 16, line_y), item, fill=0, font=font)
 
         return base
     def _img_dev_settings(self) -> Image.Image:
@@ -777,8 +776,11 @@ class KatindleApp:
         for i, opt in enumerate(opts):
             y = 70 + i * 40
             if i == self.lib_menu_cursor:
-                d.rectangle((20, y - 4, self.width - 20, y + 28), fill=200)
-            d.text((30, y), opt, fill=0, font=font)
+                d.rectangle((20, y - 4, self.width - 20, y + 28), fill=HILIGHT_GRAY)
+                text_color = 255
+            else:
+                text_color = 0
+            d.text((30, y), opt, fill=text_color, font=font)
 
         return img
     def _epub_cache_root(self):
