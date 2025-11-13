@@ -646,6 +646,9 @@ class KatindleApp:
             if choice == "Dev Settings":
                 self.state = self.STATE_DEV_SETTINGS
                 self.lib_menu_cursor = 0
+            elif choice == "Settings":
+                self.state = self.STATE_SETTINGS
+                self.lib_menu_cursor = 0
             elif choice == "Sleep":
                 self.renderer.clear_white()   # show pure white
                 self.renderer.shutdown()      # panel sleep
