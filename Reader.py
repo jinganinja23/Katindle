@@ -67,10 +67,8 @@ def set_wifi(enabled: bool):
     else:
         subprocess.run(["systemctl", "disable", "--now", "ssh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 def set_dark_mode(enabled: bool):
-    if enabled:
-        INVERT_COLORS = False
-    else:
-        INVERT_COLORS = True
+    global INVERT_COLORS   
+    INVERT_COLORS = not enabled  # simple and correct
 
 def set_bluetooth(enabled: bool):
     cmd = ["rfkill", "unblock" if enabled else "block", "bluetooth"]
@@ -81,10 +79,7 @@ def wifi_is_on() -> bool:
     return "Soft blocked: no" in out.stdout
 
 def dark_mode_on() -> bool:
-    if INVERT_COLORS == True:
-        return True
-    else:
-        return False
+    return INVERT_COLORS
 
 def bt_is_on() -> bool:
     out = subprocess.run(["rfkill", "list", "bluetooth"], capture_output=True, text=True)
@@ -665,6 +660,9 @@ class KatindleApp:
                 self.page = 0
                 self.save_progress()
                 self.state = self.STATE_READER
+            elif choice == "Settings":
+                self.state = self.STATE_SETTINGS
+                self.lib_menu_cursor = 0
             elif choice == "Sleep":
                 self.renderer.clear_white()   # show pure white
                 self.renderer.shutdown()      # panel sleep
@@ -691,6 +689,8 @@ class KatindleApp:
         elif self.state == self.STATE_SETTINGS:
             if self.lib_menu_cursor == 0:
                 set_dark_mode(not dark_mode_on())
+                self.renderer.invert = dark_mode_on()   # <--- ADD THIS
+                self.dirty = True
             else:
                 self.state = self.STATE_LIBRARY
             self.dirty = True
