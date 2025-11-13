@@ -630,7 +630,7 @@ class KatindleApp:
             elif choice == "Sleep":
                 self.renderer.clear_white()   # show pure white
                 self.renderer.shutdown()      # panel sleep
-                sys.exit(0) 
+                quit()
             else:
                 self.state = self.STATE_READER
             self.dirty = True
