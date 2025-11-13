@@ -381,33 +381,62 @@ class EInkRenderer(Renderer):
         import epd5in79
         self.epd = epd5in79.EPD()
 
-        # 4-gray init, like the Waveshare demo
-        self.epd.init_4Gray()
+        # Try the fast init from the Waveshare demo
+        if hasattr(self.epd, "init_Fast"):
+            try:
+                self.epd.init_Fast()
+            except Exception:
+                self.epd.init()
+        elif hasattr(self.epd, "init_fast"):
+            # some libs use a different case
+            try:
+                self.epd.init_fast()
+            except Exception:
+                self.epd.init()
+        else:
+            self.epd.init()
+
         self.epd.Clear()
 
         self.width = width
         self.height = height
         self.panel_w, self.panel_h = self.epd.width, self.epd.height
 
+        # simple threshold LUT for B/W
+        self._thr = 178
+        self._lut = [0 if i < self._thr else 255 for i in range(256)]
+
+        print("EPD reports:", self.panel_w, "x", self.panel_h)
+
     def draw_image(self, img: Image.Image) -> None:
-        # Work in 8-bit L mode; the driver will quantise to 4 greys
+        # render as greyscale, then threshold to B/W
         if img.mode != "L":
             img = img.convert("L")
 
-        panel_w, panel_h = self.panel_w, self.panel_h
-
-        # rotate / resize to panel
-        if img.size == (792, 272) and (panel_w, panel_h) == (272, 792):
+        # rotate if aspect different
+        if (img.width > img.height) != (self.panel_w > self.panel_h):
             img = img.rotate(90, expand=True)
-        elif img.size != (panel_w, panel_h):
-            img = img.resize((panel_w, panel_h), Image.NEAREST)
 
-        # 4-gray buffer + display
-        buf = self.epd.getbuffer_4Gray(img)
-        self.epd.display_4Gray(buf)
+        # resize to panel
+        if (img.width, img.height) != (self.panel_w, self.panel_h):
+            img = img.resize((self.panel_w, self.panel_h), Image.NEAREST)
+
+        bw = img.point(self._lut, mode="1")
+        buf = self.epd.getbuffer(bw)
+
+        # prefer fast display if available
+        if hasattr(self.epd, "display_Fast"):
+            try:
+                self.epd.display_Fast(buf)
+                return
+            except Exception:
+                pass
+
+        self.epd.display(buf)
 
     def poll_key(self):
         return None
+
     def clear_white(self):
         from PIL import Image
         white = Image.new("1", (self.epd.width, self.epd.height), 255)
@@ -415,9 +444,10 @@ class EInkRenderer(Renderer):
 
     def shutdown(self):
         try:
-            self.epd.sleep()   # low power
+            self.epd.sleep()
         except Exception:
             pass
+
 
 # -------------------------- App / Controller -------------------------------
 class KatindleApp:
@@ -712,14 +742,13 @@ class KatindleApp:
         for idx, item in enumerate(self.lib_menu_items):
             line_y = item_y + idx * (font.size + 10)
             if idx == self.lib_menu_cursor:
-                # dark grey bar
                 d.rectangle(
                     (x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4),
-                    fill=HILIGHT_GRAY
+                    fill=0       # BLACK bar
                 )
-                text_color = 255  # white text on dark grey
+                text_color = 255  # white text
             else:
-                text_color = 0    # black text on white
+                text_color = 0    # black text
             d.text((x + 16, line_y), item, fill=text_color, font=font)
 
         return base
@@ -748,14 +777,12 @@ class KatindleApp:
         item_y = y + header_h + 6
         for idx, item in enumerate(self.read_menu_items):
             line_y = item_y + idx * (font.size + 10)
-            if idx == self.read_menu_cursor:
-                d.rectangle(
-                    (x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4),
-                    fill=HILIGHT_GRAY
-                )
+            if i == self.lib_menu_cursor:
+                d.rectangle((20, y - 4, self.width - 20, y + 28), fill=0)
                 text_color = 255
             else:
                 text_color = 0
+
             d.text((x + 16, line_y), item, fill=text_color, font=font)
 
 
