@@ -777,9 +777,13 @@ class KatindleApp:
         item_y = y + header_h + 6
         for idx, item in enumerate(self.read_menu_items):
             line_y = item_y + idx * (font.size + 10)
-            if i == self.lib_menu_cursor:
-                d.rectangle((20, y - 4, self.width - 20, y + 28), fill=0)
-                text_color = 255
+
+            if idx == self.read_menu_cursor:   # ✅ CORRECT
+                d.rectangle(
+                    (x + 8, line_y - 4, x + box_w - 8, line_y + font.size + 4),
+                    fill=0   # black background
+                )
+                text_color = 255  # white text
             else:
                 text_color = 0
 
