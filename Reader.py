@@ -45,7 +45,7 @@ FONT_SIZE = 18
 TITLE_FONT_SIZE = 25
 FPS = 10
 HILIGHT_GRAY = 64  # dark grey for menu highlight
-INVERT_COLORS = False 
+INVERT_COLORS = True 
 # -------------------------- State file utils --------------------------------
 def _default_state_path() -> str:
     override = os.environ.get("KATINDLE_STATE")
