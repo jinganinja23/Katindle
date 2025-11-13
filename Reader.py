@@ -45,7 +45,7 @@ FONT_SIZE = 18
 TITLE_FONT_SIZE = 25
 FPS = 10
 HILIGHT_GRAY = 64  # dark grey for menu highlight
-INVERT_COLORS = True 
+INVERT_COLORS = False 
 # -------------------------- State file utils --------------------------------
 def _default_state_path() -> str:
     override = os.environ.get("KATINDLE_STATE")
@@ -66,6 +66,11 @@ def set_wifi(enabled: bool):
         subprocess.run(["systemctl", "enable", "--now", "ssh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         subprocess.run(["systemctl", "disable", "--now", "ssh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def set_dark_mode(enabled: bool):
+    if enabled:
+        INVERT_COLORS = False
+    else:
+        INVERT_COLORS = True
 
 def set_bluetooth(enabled: bool):
     cmd = ["rfkill", "unblock" if enabled else "block", "bluetooth"]
@@ -74,6 +79,12 @@ def set_bluetooth(enabled: bool):
 def wifi_is_on() -> bool:
     out = subprocess.run(["rfkill", "list", "wifi"], capture_output=True, text=True)
     return "Soft blocked: no" in out.stdout
+
+def dark_mode_on() -> bool:
+    if INVERT_COLORS == True:
+        return True
+    else:
+        return False
 
 def bt_is_on() -> bool:
     out = subprocess.run(["rfkill", "list", "bluetooth"], capture_output=True, text=True)
@@ -550,6 +561,8 @@ class KatindleApp:
             return self._img_reader_menu()
         elif self.state == self.STATE_DEV_SETTINGS:
             return self._img_dev_settings()
+        elif self.state == self.STATE_SETTINGS:
+            return self._img_settings()
         else:
             return self._img_reader()
         
@@ -594,6 +607,8 @@ class KatindleApp:
         elif self.state == self.STATE_DEV_SETTINGS:  # 👈 add this
             # 3 items: Wi-Fi, Bluetooth, Back
             self.lib_menu_cursor = (self.lib_menu_cursor - 1) % 3
+        elif self.state == self.STATE_SETTINGS:
+            self.lib_menu_cursor = (self.lib_menu_cursor - 1) % 2
         else:
             if self.page > 0:
                 self.page -= 1
@@ -612,6 +627,8 @@ class KatindleApp:
             self.read_menu_cursor = (self.read_menu_cursor + 1) % len(self.read_menu_items)
         elif self.state == self.STATE_DEV_SETTINGS:  # 👈 add this
             self.lib_menu_cursor = (self.lib_menu_cursor + 1) % 3
+        elif self.state == self.STATE_SETTINGS:
+            self.lib_menu_cursor = (self.lib_menu_cursor + 1) % 2
         else:
             if self.page_markers:
                 new_page = min(len(self.page_markers) - 1, self.page + 1)
@@ -668,6 +685,13 @@ class KatindleApp:
                 self.state = self.STATE_LIBRARY
             self.dirty = True
             return
+        elif self.state == self.STATE_SETTINGS:
+            if self.lib_menu_cursor == 0:
+                set_dark_mode(not dark_mode_on())
+            else:
+                self.state = self.STATE_LIBRARY
+            self.dirty = True
+            return
         elif self.state == self.STATE_LIBRARY:
                 
                 self.current_book = self.library.books[self.cursor]
@@ -709,6 +733,8 @@ class KatindleApp:
         elif self.state == self.STATE_READER_MENU:
             self.state = self.STATE_READER
         elif self.state == self.STATE_DEV_SETTINGS:
+            self.state = self.STATE_LIBRARY
+        elif self.state == self.STATE_SETTINGS:
             self.state = self.STATE_LIBRARY
 
         else:
@@ -817,6 +843,30 @@ class KatindleApp:
             d.text((30, y), opt, fill=text_color, font=font)
 
         return img
+    
+    def _img_settings(self) -> Image.Image:
+        img = Image.new("L", (self.width, self.height), 255)
+        d = ImageDraw.Draw(img)
+        font = self.paginator.font
+
+        d.rectangle((0, 0, self.width, 40), fill=0)
+        d.text((12, 10), "Settings", fill=255, font=font)
+
+        opts = [
+            f"Dark Mode: {'ON' if dark_mode_on() else 'OFF'}",
+            "Back",
+        ]
+        for i, opt in enumerate(opts):
+            y = 70 + i * 40
+            if i == self.lib_menu_cursor:
+                d.rectangle((20, y - 4, self.width - 20, y + 28), fill=HILIGHT_GRAY)
+                text_color = 255
+            else:
+                text_color = 0
+            d.text((30, y), opt, fill=text_color, font=font)
+
+        return img
+    
     def _epub_cache_root(self):
         p = os.path.expanduser("~/.cache/katindle/epub")
         os.makedirs(p, exist_ok=True)
