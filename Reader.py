@@ -730,7 +730,7 @@ class KatindleApp:
         y = (self.height - box_h) // 2
 
         # outer box (white)
-        d.rectangle((x, y, x + box_w, y + box_h), fill=255, outline=0)
+        d.rectangle((x, y, x + box_w, y + box_h), fill=255)
 
         # header bar (black)
         header_h = font.size + 14
@@ -767,7 +767,7 @@ class KatindleApp:
         y = (self.height - box_h) // 2
 
         # outer box (white)
-        d.rectangle((x, y, x + box_w, y + box_h), fill=255, outline=0)
+        d.rectangle((x, y, x + box_w, y + box_h), fill=255)
 
         # header bar (black)
         header_h = font.size + 14
