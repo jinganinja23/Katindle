@@ -378,7 +378,7 @@ class SDLRenderer(Renderer):
 # Replace your EInkRenderer with this
 class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
-        from waveshare_epd import epd5in79
+        import epd5in79
         self.epd = epd5in79.EPD()
 
         # 4-gray init, like the Waveshare demo
