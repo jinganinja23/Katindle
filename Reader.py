@@ -379,9 +379,13 @@ class EInkRenderer(Renderer):
     def __init__(self, width: int, height: int):
         import epd5in79
         self.epd = epd5in79.EPD()
-        if hasattr(self.epd, "init_fast"):
-            try: self.epd.init_fast()
-            except: self.epd.init()
+
+        # Try fast init first (matches demo exactly)
+        if hasattr(self.epd, "init_Fast"):
+            try:
+                self.epd.init_Fast()
+            except Exception:
+                self.epd.init()
         else:
             self.epd.init()
 
@@ -401,12 +405,21 @@ class EInkRenderer(Renderer):
             img = img.rotate(90, expand=True)
 
         if (img.width, img.height) != (self.panel_w, self.panel_h):
-            # NEAREST is faster and fine for 1-bit glyphs
             img = img.resize((self.panel_w, self.panel_h), Image.NEAREST)
 
-        # Use LUT (C-accelerated) instead of Python lambda per pixel
         bw = img.point(self._lut, mode="1")
-        self.epd.display(self.epd.getbuffer(bw))
+        buf = self.epd.getbuffer(bw)
+
+        # Prefer fast display if available
+        if hasattr(self.epd, "display_Fast"):
+            try:
+                self.epd.display_Fast(buf)
+                return
+            except Exception:
+                pass
+
+        # Fallback to normal full refresh
+        self.epd.display(buf)
 
     def poll_key(self):
         return None
