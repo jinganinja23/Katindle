@@ -68,7 +68,7 @@ def set_wifi(enabled: bool):
         subprocess.run(["systemctl", "disable", "--now", "ssh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 def set_dark_mode(enabled: bool):
     global INVERT_COLORS   
-    INVERT_COLORS = not enabled  # simple and correct
+    INVERT_COLORS = enabled  # simple and correct
 
 def set_bluetooth(enabled: bool):
     cmd = ["rfkill", "unblock" if enabled else "block", "bluetooth"]
